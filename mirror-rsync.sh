@@ -14,16 +14,17 @@ filename=packages-$syncDate.txt;
 #entries of which dists/ to sync. See example in other file here.
 masterSource='gb.archive.ubuntu.com';
 #Adapt as necessary to your package mirror setup
-localPackageStore="/srv/apt-mirror/$masterSource/ubuntu";
+baseDirectory="/srv/apt-mirror";
+localPackageStore="$baseDirectory/$masterSource/ubuntu";
 
-if [ ! -f /etc/mirror-rsync.d/$masterSource ]; then
+if [[ ! -f /etc/mirror-rsync.d/$masterSource ]]; then
     echo "No master source file found at /etc/mirror-rsync.d/$masterSource, create one and add one line per dists/ entry to sync";
     exit 1;
 fi
 
 #Add a marker for a second APT mirror to look for - if the sync falls on its face, can drop this out of the pair and sync exclusively from the mirror until fixed
-if [ -f /mnt/packagemirror/lastSuccess ]; then
-	rm -v /mnt/packagemirror/lastSuccess;
+if [[ -f $baseDirectory/lastSuccess ]]; then
+	rm -v "$baseDirectory/lastSuccess";
 fi
 
 echo "$syncDate $(date +%T) Starting, exporting to /tmp/$filename";
@@ -102,4 +103,4 @@ echo "$(date +%T) Complete";
 
 rm -v "/tmp/$filename";
 
-touch /mnt/packagemirror/lastSuccess;
+touch "$baseDirectory/lastSuccess";
