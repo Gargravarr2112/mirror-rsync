@@ -35,6 +35,7 @@ if [[ -f /tmp/$filename ]]; then
 fi
 
 echo "$(date +%T) Syncing releases";
+mkdir -p "$localPackageStore/dists"
 rsync --no-motd --delete-during --archive --recursive --human-readable --files-from="/etc/mirror-rsync.d/$masterSource" $masterSource::ubuntu/dists "$localPackageStore/dists";
 
 echo "$(date +%T) Generating package list";
