@@ -13,7 +13,11 @@ sourceFolder='/etc/mirror-rsync.d';
 #Adapt as necessary to your package mirror setup
 baseDirectory="/srv/apt-mirror";
 
-if [[ ! -f "$sourceFolder/"* ]]; then
+if [[ ! -d "$sourceFolder" ]]; then
+		echo "Source folder $sourceFolder does not exist!"
+		exit 1;
+
+elif [[ $(ls -1 "$sourceFolder"/* | wc -l) -eq 0 ]]; then
     echo "No master source file(s) found in $sourceFolder, create one and add name, releases, repositories and architectures per README.";
     exit 1;
 fi
@@ -25,7 +29,6 @@ fi
 
 for sourceServer in "$sourceFolder/*"
 do
-
 	source "$sourceServer";
 	if [[ -z "$name" ]] || [[ -z "$releases" ]] || [[ -z "$repositories" ]] || [[ -z "$architectures" ]]
 	then
