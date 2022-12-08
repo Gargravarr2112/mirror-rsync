@@ -13,8 +13,8 @@ sourceFolder='/etc/mirror-rsync.d';
 #Adapt as necessary to your package mirror setup
 baseDirectory="/srv/apt-mirror";
 
-if [[ ! -f "$sourceFolder/*" ]]; then
-    echo "No master source file(s) found in $sourceFolder, create one and add one line per dists/ entry to sync";
+if [[ ! -f "$sourceFolder/"* ]]; then
+    echo "No master source file(s) found in $sourceFolder, create one and add name, releases, repositories and architectures per README.";
     exit 1;
 fi
 
@@ -27,9 +27,9 @@ for sourceServer in "$sourceFolder/*"
 do
 
 	source "$sourceServer";
-	if [[ -z "$name" ]] || [[ -z "$releases" ]] || [[ -z "$repositories" ]] || [[ -z "$achitectures" ]]
+	if [[ -z "$name" ]] || [[ -z "$releases" ]] || [[ -z "$repositories" ]] || [[ -z "$architectures" ]]
 	then
-		echo "Error: $sourceServer is missing one or more of 'name', 'releases', 'repositories' or 'architecures' entries! Skipping."
+		echo "Error: $sourceServer is missing one or more of 'name', 'releases', 'repositories' or 'architectures' entries! Skipping."
 		continue;
 	fi
 
