@@ -8,17 +8,13 @@ set -euo pipefail;
 #Date: 2017-09-20
 
 syncDate=$(date +%F);
-#File to build a list of files to rsync from the remote mirror - will contain one line for every file in the dists/ to sync
-filename=packages-$syncDate.txt;
-#Assumes a 'master source' file in /etc/mirror-rsync.d named for the masterSource value below. The file contains newline-separated
-#entries of which dists/ to sync. See example in other file here.
-masterSource='gb.archive.ubuntu.com';
+
+sourceFolder='/etc/mirror-rsync.d';
 #Adapt as necessary to your package mirror setup
 baseDirectory="/srv/apt-mirror";
-localPackageStore="$baseDirectory/$masterSource/ubuntu";
 
-if [[ ! -f /etc/mirror-rsync.d/$masterSource ]]; then
-    echo "No master source file found at /etc/mirror-rsync.d/$masterSource, create one and add one line per dists/ entry to sync";
+if [[ ! -f "$sourceFolder/*" ]]; then
+    echo "No master source file(s) found in $sourceFolder, create one and add one line per dists/ entry to sync";
     exit 1;
 fi
 
@@ -27,81 +23,96 @@ if [[ -f $baseDirectory/lastSuccess ]]; then
 	rm -v "$baseDirectory/lastSuccess";
 fi
 
-echo "$syncDate $(date +%T) Starting, exporting to /tmp/$filename";
+for sourceServer in "$sourceFolder/*"
+do
 
-#In case leftover from testing or failed previous run
-if [[ -f /tmp/$filename ]]; then
-	rm -v "/tmp/$filename";
-fi
+	source "$sourceServer";
+	if [[ -z "$name" ]] || [[ -z "$releases" ]] || [[ -z "$repositories" ]] || [[ -z "$achitectures" ]]
+	then
+		echo "Error: $sourceServer is missing one or more of 'name', 'releases', 'repositories' or 'architecures' entries! Skipping."
+		continue;
+	fi
 
-echo "$(date +%T) Syncing releases";
-mkdir -p "$localPackageStore/dists"
-rsync --no-motd --delete-during --archive --recursive --human-readable --files-from="/etc/mirror-rsync.d/$masterSource" $masterSource::ubuntu/dists "$localPackageStore/dists";
+	masterSource=$(basename "$sourceServer");
+	#File to build a list of files to rsync from the remote mirror - will contain one line for every file in the dists/ to sync
+	filename="packages-$masterSource-$syncDate.txt";
 
-echo "$(date +%T) Generating package list";
-#rather than hard-coding, use a config file to run the loop. The same config file as used above to sync the releases
-while read release; do
-	for repo in 'main' 'restricted' 'universe' 'multiverse'; do #Adapt if necessary
-		for arch in 'amd64' 'i386'; do #Adapt if necessary
-			if [[ ! -f $localPackageStore/dists/$release/$repo/binary-$arch/Packages ]]; then #uncompressed file not found
-				echo "$(date +%T) Extracking $release $repo $arch Packages file from archive";
-				gunzip --keep "$localPackageStore/dists/$release/$repo/binary-$arch/Packages.gz";
-			fi
-			echo "$(date +%T) Extracting packages from $release $repo $arch";
-			if [[ -s $localPackageStore/dists/$release/$repo/binary-$arch/Packages ]]; then
-				grep 'Filename: ' "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" | sed 's/Filename: //' >> "/tmp/$filename";
-			else
-				echo "$(date +%T) Package list is empty, skipping";
-			fi
+	echo "$syncDate $(date +%T) Starting, exporting to /tmp/$filename";
+
+	#In case leftover from testing or failed previous run
+	if [[ -f "/tmp/$filename" ]]; then
+		rm -v "/tmp/$filename";
+	fi
+
+	echo "$(date +%T) Syncing releases";
+	localPackageStore="$baseDirectory/$masterSource/$name";
+	mkdir -p "$localPackageStore/dists"
+	rsync --no-motd --delete-during --archive --recursive --human-readable --include="${releases[*]}" $masterSource::"$name/dists" "$localPackageStore/dists";
+
+	echo "$(date +%T) Generating package list";
+	#rather than hard-coding, use a config file to run the loop. The same config file as used above to sync the releases
+	for release in $releases; do
+		for repo in $repositories; do
+			for arch in $architectures; do
+				if [[ ! -f "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" ]]; then #uncompressed file not found
+					echo "$(date +%T) Extracking $release $repo $arch Packages file from archive";
+					gunzip --keep "$localPackageStore/dists/$release/$repo/binary-$arch/Packages.gz";
+				fi
+				echo "$(date +%T) Extracting packages from $release $repo $arch";
+				if [[ -s "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" ]]; then
+					awk '/^Filename: / { print $2; }' "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" >> "/tmp/$filename";
+				else
+					echo "$(date +%T) Package list is empty, skipping";
+				fi
+			done
 		done
 	done
-done </etc/mirror-rsync.d/$masterSource
 
-echo "$(date +%T) Deduplicating";
+	echo "$(date +%T) Deduplicating";
 
-sort --unique "/tmp/$filename" > "/tmp/$filename.sorted";
-rm -v "/tmp/$filename";
-mv -v "/tmp/$filename.sorted" "/tmp/$filename";
+	sort --unique "/tmp/$filename" > "/tmp/$filename.sorted";
+	rm -v "/tmp/$filename";
+	mv -v "/tmp/$filename.sorted" "/tmp/$filename";
 
-echo "$(wc -l /tmp/$filename | awk '{print $1}') files to be sync'd";
+	echo "$(wc -l /tmp/$filename | awk '{print $1}') files to be sync'd";
 
-echo "$(date +%T) Running rsync";
+	echo "$(date +%T) Running rsync";
 
-#rsync may error out due to excessive load on the source server, so try up to 3 times
-set +e;
-attempt=1;
-exitCode=1;
+	#rsync may error out due to excessive load on the source server, so try up to 3 times
+	set +e;
+	attempt=1;
+	exitCode=1;
 
-while [[ $exitCode -gt 0 ]] && [[ $attempt -lt 4 ]];
-do
-	SECONDS=0;
-	rsync --copy-links --files-from="/tmp/$filename" --no-motd --delete-during --archive --recursive --human-readable $masterSource::ubuntu "$localPackageStore/" 2>&1;
-	exitCode=$?;
+	while [[ $exitCode -gt 0 ]] && [[ $attempt -lt 4 ]];
+	do
+		SECONDS=0;
+		rsync --copy-links --files-from="/tmp/$filename" --no-motd --delete-during --archive --recursive --human-readable $masterSource::$name "$localPackageStore/" 2>&1;
+		exitCode=$?;
+		if [[ $exitCode -gt 0 ]]; then
+			waitTime=$((attempt*300)); #increasing wait time - 5, 10 and 15 minutes between attempts
+			echo "rsync attempt $attempt failed with exit code $exitCode, waiting $waitTime seconds to retry";
+			sleep $waitTime;
+			let attempt+=1;
+		fi
+	done
+
+	set -e;
+
+	#Exiting here will stop the lastSuccess file being created, and will stop APT02 running its own sync
 	if [[ $exitCode -gt 0 ]]; then
-		waitTime=$((attempt*300)); #increasing wait time - 5, 10 and 15 minutes between attempts
-		echo "rsync attempt $attempt failed with exit code $exitCode, waiting $waitTime seconds to retry";
-		sleep $waitTime;
-		let attempt+=1;
+		echo "rsync failed all 3 attempts, erroring out";
+		exit 2;
 	fi
+
+	echo "$(date +%T) Sync complete, runtime: $SECONDS s";
+
+	echo "$(date +%T) Deleting obsolete packages";
+
+	#Build a list of files that have been synced and delete any that are not in the list
+	find "$localPackageStore/pool/" -type f | { grep -Fvf "/tmp/$filename" || true; } | xargs --no-run-if-empty -I {} rm -v {}; # '|| true' used here to prevent grep causing pipefail if there are no packages to delete - grep normally returns 1 if no files are found
+
+	echo "$(date +%T) Complete";
+
+	rm -v "/tmp/$filename";
 done
-
-set -e;
-
-#Exiting here will stop the lastSuccess file being created, and will stop APT02 running its own sync
-if [[ $exitCode -gt 0 ]]; then
-	echo "rsync failed all 3 attempts, erroring out";
-	exit 2;
-fi
-
-echo "$(date +%T) Sync complete, runtime: $SECONDS s";
-
-echo "$(date +%T) Deleting obsolete packages";
-
-#Build a list of files that have been synced and delete any that are not in the list
-find "$localPackageStore/pool/" -type f | { grep -Fvf "/tmp/$filename" || true; } | xargs --no-run-if-empty -I {} rm -v {}; # '|| true' used here to prevent grep causing pipefail if there are no packages to delete - grep normally returns 1 if no files are found
-
-echo "$(date +%T) Complete";
-
-rm -v "/tmp/$filename";
-
 touch "$baseDirectory/lastSuccess";
