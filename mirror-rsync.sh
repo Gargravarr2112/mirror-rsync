@@ -9,9 +9,9 @@ set -euo pipefail;
 
 syncDate=$(date +%F);
 
-sourceFolder='/etc/mirror-rsync.d';
 #Adapt as necessary to your package mirror setup
-baseDirectory="/srv/apt-mirror";
+sourceFolder='/etc/mirror-rsync.d';
+baseDirectory="/srv/apt";
 
 if [[ ! -d "$sourceFolder" ]]; then
 		echo "Source folder $sourceFolder does not exist!"
@@ -26,8 +26,7 @@ fi
 if [[ -f $baseDirectory/lastSuccess ]]; then
 	rm -v "$baseDirectory/lastSuccess";
 fi
-
-for sourceServer in "$sourceFolder/*"
+for sourceServer in "$sourceFolder"/*
 do
 	source "$sourceServer";
 	if [[ -z "$name" ]] || [[ -z "$releases" ]] || [[ -z "$repositories" ]] || [[ -z "$architectures" ]]
@@ -50,13 +49,14 @@ do
 	echo "$(date +%T) Syncing releases";
 	localPackageStore="$baseDirectory/$masterSource/$name";
 	mkdir -p "$localPackageStore/dists"
-	rsync --no-motd --delete-during --archive --recursive --human-readable --include="${releases[*]}" $masterSource::"$name/dists" "$localPackageStore/dists";
+
+	echo -n ${releases[*]} | sed 's/ /\n/g' | rsync --no-motd --delete-during --archive --recursive --human-readable --files-from=- $masterSource::"$name/dists/" "$localPackageStore/dists/";
 
 	echo "$(date +%T) Generating package list";
 	#rather than hard-coding, use a config file to run the loop. The same config file as used above to sync the releases
-	for release in $releases; do
-		for repo in $repositories; do
-			for arch in $architectures; do
+	for release in ${releases[*]}; do
+		for repo in ${repositories[*]}; do
+			for arch in ${architectures[*]}; do
 				if [[ ! -f "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" ]]; then #uncompressed file not found
 					echo "$(date +%T) Extracking $release $repo $arch Packages file from archive";
 					gunzip --keep "$localPackageStore/dists/$release/$repo/binary-$arch/Packages.gz";
@@ -107,7 +107,7 @@ do
 		exit 2;
 	fi
 
-	echo "$(date +%T) Sync complete, runtime: $SECONDS s";
+	echo "$(date +%T) Sync from $masterSource complete, runtime: $SECONDS s";
 
 	echo "$(date +%T) Deleting obsolete packages";
 
