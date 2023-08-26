@@ -57,12 +57,17 @@ do
 	for release in ${releases[*]}; do
 		for repo in ${repositories[*]}; do
 			for arch in ${architectures[*]}; do
-				if [[ ! -f "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" ]]; then #uncompressed file not found
-					echo "$(date +%T) Extracking $release $repo $arch Packages file from archive";
-					gunzip --keep "$localPackageStore/dists/$release/$repo/binary-$arch/Packages.gz";
+				if [[ ! -f "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" && -f "$localPackageStore/dists/$release/$repo/binary-$arch/Packages.gz" ]]; then #uncompressed file not found
+					packageArchive="$localPackageStore/dists/$release/$repo/binary-$arch/Packages.gz";
+					echo "$(date +%T) Extracting $release $repo $arch Packages file from archive $packageArchive";
+					if [[ -L "$packageArchive" ]]; then #Some distros (e.g. Debian) make Packages.gz a symlink to a hashed filename. NB. it is relative to the binary-$arch folder
+					echo "$(date +%T) Archive is a symlink, resolving";
+						packageArchive=$(readlink $packageArchive | sed --expression "s_^_${packageArchive}_" --expression 's/Packages\.gz//');
+					fi
+					gunzip <"$packageArchive" >"$localPackageStore/dists/$release/$repo/binary-$arch/Packages";
 				fi
 				echo "$(date +%T) Extracting packages from $release $repo $arch";
-				if [[ -s "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" ]]; then
+				if [[ -s "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" ]]; then #Have experienced zero filesizes for certain repos
 					awk '/^Filename: / { print $2; }' "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" >> "/tmp/$filename";
 				else
 					echo "$(date +%T) Package list is empty, skipping";
