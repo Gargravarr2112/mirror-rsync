@@ -13,13 +13,19 @@ syncDate=$(date +%F);
 sourceFolder='/etc/mirror-rsync.d';
 baseDirectory="/srv/apt";
 
+#Basic checks
 if [[ ! -d "$sourceFolder" ]]; then
 		echo "Source folder $sourceFolder does not exist!"
 		exit 1;
 
 elif [[ $(ls -1 "$sourceFolder"/* | wc -l) -eq 0 ]]; then
-    echo "No master source file(s) found in $sourceFolder, create one and add name, releases, repositories and architectures per README.";
+    echo "No master source file(s) found in $sourceFolder, create one and add name, releases, repositories and architectures per README." 1>&2;
     exit 1;
+elif [[ ! $(which rsync) ]] || [[ ! $(which sed) ]] || [[ ! $(which awk) ]]; then
+	echo "Missing one or more of required tools 'rsync', 'sed' and 'awk' (or they are not in the PATH for this user)." 1>&2;
+	exit 1;
+elif [[ ! $(which gunzip) ]] && [[ ! $(which xzcat) ]]; then
+	echo "Warning: missing both 'gunzip' and 'xzcat', required to work with certain repositories that do not provide uncompressed Packages lists. This may not work with your chosen repository. Install gzip and/or xz for best compatibility." 1>&2;
 fi
 
 #Add a marker for a second APT mirror to look for - if the sync falls on its face, can drop this out of the pair and sync exclusively from the mirror until fixed
@@ -31,7 +37,7 @@ do
 	source "$sourceServer";
 	if [[ -z "$name" ]] || [[ -z "$releases" ]] || [[ -z "$repositories" ]] || [[ -z "$architectures" ]]
 	then
-		echo "Error: $sourceServer is missing one or more of 'name', 'releases', 'repositories' or 'architectures' entries! Skipping."
+		echo "Error: $sourceServer is missing one or more of 'name', 'releases', 'repositories' or 'architectures' entries! Skipping." 1>&2;
 		continue;
 	fi
 
@@ -57,20 +63,37 @@ do
 	for release in ${releases[*]}; do
 		for repo in ${repositories[*]}; do
 			for arch in ${architectures[*]}; do
-				if [[ ! -f "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" && -f "$localPackageStore/dists/$release/$repo/binary-$arch/Packages.gz" ]]; then #uncompressed file not found
-					packageArchive="$localPackageStore/dists/$release/$repo/binary-$arch/Packages.gz";
-					echo "$(date +%T) Extracting $release $repo $arch Packages file from archive $packageArchive";
-					if [[ -L "$packageArchive" ]]; then #Some distros (e.g. Debian) make Packages.gz a symlink to a hashed filename. NB. it is relative to the binary-$arch folder
-					echo "$(date +%T) Archive is a symlink, resolving";
-						packageArchive=$(readlink $packageArchive | sed --expression "s_^_${packageArchive}_" --expression 's/Packages\.gz//');
+				if [[ ! -f "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" ]]; then  #uncompressed file not found
+					if [[ $(which gunzip) ]]; then #See issue #5 - some distros don't provide gunzip by default but have xz
+					  if [[ -f "$localPackageStore/dists/$release/$repo/binary-$arch/Packages.gz" ]]; then
+							packageArchive="$localPackageStore/dists/$release/$repo/binary-$arch/Packages.gz";
+							echo "$(date +%T) Extracting $release $repo $arch Packages file from archive $packageArchive";
+							if [[ -L "$packageArchive" ]]; then #Some distros (e.g. Debian) make Packages.gz a symlink to a hashed filename. NB. it is relative to the binary-$arch folder
+								echo "$(date +%T) Archive is a symlink, resolving";
+								packageArchive=$(readlink $packageArchive | sed --expression "s_^_${packageArchive}_" --expression 's/Packages\.gz//');
+							fi
+							gunzip <"$packageArchive" >"$localPackageStore/dists/$release/$repo/binary-$arch/Packages";
+						fi
+					elif [[ $(which xzcat) ]]; then
+						if [[ -f "$localPackageStore/dists/$release/$repo/binary-$arch/Packages.xz" ]]; then
+							packageArchive="$localPackageStore/dists/$release/$repo/binary-$arch/Packages.xz";
+							echo "$(date +%T) Extracting $release $repo $arch Packages file from archive $packageArchive";
+							if [[ -L "$packageArchive" ]]; then #Same as above
+								echo "$(date +%T) Archive is a symlink, resolving";
+								packageArchive=$(readlink $packageArchive | sed --expression "s_^_${packageArchive}_" --expression 's/Packages\.xz//');
+							fi
+							xzcat <"$packageArchive" >"$localPackageStore/dists/$release/$repo/binary-$arch/Packages";
+						fi
+					else
+						echo "$(date +%T) Error: uncompressed package list not found in remote repo and decompression tools for .gz or .xz files not found on this system, aborting. Please install either gunzip or xzcat to use this script." 1>&2;
+						exit 1;
 					fi
-					gunzip <"$packageArchive" >"$localPackageStore/dists/$release/$repo/binary-$arch/Packages";
-				fi
-				echo "$(date +%T) Extracting packages from $release $repo $arch";
-				if [[ -s "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" ]]; then #Have experienced zero filesizes for certain repos
-					awk '/^Filename: / { print $2; }' "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" >> "/tmp/$filename";
-				else
-					echo "$(date +%T) Package list is empty, skipping";
+					echo "$(date +%T) Extracting packages from $release $repo $arch";
+					if [[ -s "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" ]]; then #Have experienced zero filesizes for certain repos
+						awk '/^Filename: / { print $2; }' "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" >> "/tmp/$filename";
+					else
+						echo "$(date +%T) Package list is empty, skipping";
+					fi
 				fi
 			done
 		done
@@ -98,7 +121,7 @@ do
 		exitCode=$?;
 		if [[ $exitCode -gt 0 ]]; then
 			waitTime=$((attempt*300)); #increasing wait time - 5, 10 and 15 minutes between attempts
-			echo "rsync attempt $attempt failed with exit code $exitCode, waiting $waitTime seconds to retry";
+			echo "$(date +%T) rsync attempt $attempt failed with exit code $exitCode, waiting $waitTime seconds to retry" 1>&2;
 			sleep $waitTime;
 			let attempt+=1;
 		fi
@@ -108,7 +131,7 @@ do
 
 	#Exiting here will stop the lastSuccess file being created, and will stop APT02 running its own sync
 	if [[ $exitCode -gt 0 ]]; then
-		echo "rsync failed all 3 attempts, erroring out";
+		echo "rsync failed all 3 attempts, erroring out" 1>&2;
 		exit 2;
 	fi
 
@@ -119,8 +142,10 @@ do
 	#Build a list of files that have been synced and delete any that are not in the list
 	find "$localPackageStore/pool/" -type f | { grep -Fvf "/tmp/$filename" || true; } | xargs --no-run-if-empty -I {} rm -v {}; # '|| true' used here to prevent grep causing pipefail if there are no packages to delete - grep normally returns 1 if no files are found
 
-	echo "$(date +%T) Complete";
+	echo "$(date +%T) Completed $masterSource";
 
 	rm -v "/tmp/$filename";
 done
 touch "$baseDirectory/lastSuccess";
+
+echo "$(date +%T) Finished";
