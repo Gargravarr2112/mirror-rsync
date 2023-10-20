@@ -8,8 +8,9 @@ The only significant requirement is `rsync`. Standard *nix tools cover all the r
 
 - `awk`
 - `sed`
-- `gunzip`
-  Everything else is pure `bash`.
+- `gunzip` or `xzcat`
+
+Everything else is pure `bash`.
 
 ## Installing
 
