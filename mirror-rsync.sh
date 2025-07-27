@@ -54,6 +54,28 @@ elif [[ ! $(which gunzip) ]] && [[ ! $(which xzcat) ]]; then
 	echo "Warning: missing both 'gunzip' and 'xzcat', required to work with certain repositories that do not provide uncompressed Packages lists. This may not work with your chosen repository. Install gzip and/or xz for best compatibility." 1>&2;
 fi
 
+#This function parses a Sources list file when processing the
+#"source" architecture.
+get_source_files ()
+{
+	#We need to set IFS='' to preserve whitespace at beginning of lines
+	IFS='';
+	FMODE=0; # "File mode" indicates if we are inside a file list
+	while read LINE; do
+		if [[ "$LINE" = Directory:\ * ]]; then
+			DIR=${LINE#Directory: };
+		elif [[ "$LINE" = Files:* ]]; then
+			FMODE=1;
+		elif [[ "$FMODE" = "1" ]]; then
+			if [[ "$LINE" = \ * ]]; then
+				echo "$DIR $LINE";
+			else
+				FMODE=0;
+			fi
+		fi
+	done | awk 'BEGIN { OFS = "/"; } { print $1, $4; }';
+}
+
 #Add a marker for a second APT mirror to look for - if the sync falls on its face, can drop this out of the pair and sync exclusively from the mirror until fixed
 if [[ -f $baseDirectory/lastSuccess ]]; then
 	rm -v "$baseDirectory/lastSuccess";
@@ -89,25 +111,32 @@ do
 	for release in ${releases[*]}; do
 		for repo in ${repositories[*]}; do
 			for arch in ${architectures[*]}; do
-				pathPackages="$localPackageStore/dists/$release/$repo/binary-$arch/Packages";
+				if [[ "$arch" = "source" ]]; then
+					binPrefix="";
+					pkgsName="Sources";
+				else
+					binPrefix="binary-";
+					pkgsName="Packages";
+				fi
+				pathPackages="$localPackageStore/dists/$release/$repo/$binPrefix$arch/$pkgsName";
 				if [[ ! -f "$pathPackages" ]]; then  #uncompressed file not found
 					if [[ $(which gunzip) ]]; then #See issue #5 - some distros don't provide gunzip by default but have xz
 					  if [[ -f "$pathPackages.gz" ]]; then
 							packageArchive="$pathPackages.gz";
-							echo "$(date +%T) Extracting $release $repo $arch Packages file from archive $packageArchive";
+							echo "$(date +%T) Extracting $release $repo $arch $pkgsName file from archive $packageArchive";
 							if [[ -L "$packageArchive" ]]; then #Some distros (e.g. Debian) make Packages.gz a symlink to a hashed filename. NB. it is relative to the binary-$arch folder
 								echo "$(date +%T) Archive is a symlink, resolving";
-								packageArchive=$(readlink $packageArchive | sed --expression "s_^_${packageArchive}_" --expression 's/Packages\.gz//');
+								packageArchive=$(readlink $packageArchive | sed --expression "s_^_${packageArchive}_" --expression 's/'$pkgsName'\.gz//');
 							fi
 							gunzip <"$packageArchive" >"$pathPackages";
 						fi
 					elif [[ $(which xzcat) ]]; then
 						if [[ -f "$pathPackages.xz" ]]; then
 							packageArchive="$pathPackages.xz";
-							echo "$(date +%T) Extracting $release $repo $arch Packages file from archive $packageArchive";
+							echo "$(date +%T) Extracting $release $repo $arch $pkgsName file from archive $packageArchive";
 							if [[ -L "$packageArchive" ]]; then #Same as above
 								echo "$(date +%T) Archive is a symlink, resolving";
-								packageArchive=$(readlink $packageArchive | sed --expression "s_^_${packageArchive}_" --expression 's/Packages\.xz//');
+								packageArchive=$(readlink $packageArchive | sed --expression "s_^_${packageArchive}_" --expression 's/'$pkgsName'\.xz//');
 							fi
 							xzcat <"$packageArchive" >"$pathPackages";
 						fi
@@ -118,7 +147,11 @@ do
 				fi
 				echo "$(date +%T) Extracting packages from $release $repo $arch";
 				if [[ -s "$pathPackages" ]]; then #Have experienced zero filesizes for certain repos
-					awk '/^Filename: / { print $2; }' "$pathPackages" >> "/tmp/$filename";
+					if [[ "$arch" = "source" ]]; then
+						get_source_files < "$pathPackages" >> "/tmp/$filename";
+					else
+						awk '/^Filename: / { print $2; }' "$pathPackages" >> "/tmp/$filename";
+					fi
 				else
 					echo "$(date +%T) Package list is empty, skipping";
 				fi
