@@ -63,26 +63,27 @@ do
 	for release in ${releases[*]}; do
 		for repo in ${repositories[*]}; do
 			for arch in ${architectures[*]}; do
-				if [[ ! -f "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" ]]; then  #uncompressed file not found
+				pathPackages="$localPackageStore/dists/$release/$repo/binary-$arch/Packages";
+				if [[ ! -f "$pathPackages" ]]; then  #uncompressed file not found
 					if [[ $(which gunzip) ]]; then #See issue #5 - some distros don't provide gunzip by default but have xz
-					  if [[ -f "$localPackageStore/dists/$release/$repo/binary-$arch/Packages.gz" ]]; then
-							packageArchive="$localPackageStore/dists/$release/$repo/binary-$arch/Packages.gz";
+					  if [[ -f "$pathPackages.gz" ]]; then
+							packageArchive="$pathPackages.gz";
 							echo "$(date +%T) Extracting $release $repo $arch Packages file from archive $packageArchive";
 							if [[ -L "$packageArchive" ]]; then #Some distros (e.g. Debian) make Packages.gz a symlink to a hashed filename. NB. it is relative to the binary-$arch folder
 								echo "$(date +%T) Archive is a symlink, resolving";
 								packageArchive=$(readlink $packageArchive | sed --expression "s_^_${packageArchive}_" --expression 's/Packages\.gz//');
 							fi
-							gunzip <"$packageArchive" >"$localPackageStore/dists/$release/$repo/binary-$arch/Packages";
+							gunzip <"$packageArchive" >"$pathPackages";
 						fi
 					elif [[ $(which xzcat) ]]; then
-						if [[ -f "$localPackageStore/dists/$release/$repo/binary-$arch/Packages.xz" ]]; then
-							packageArchive="$localPackageStore/dists/$release/$repo/binary-$arch/Packages.xz";
+						if [[ -f "$pathPackages.xz" ]]; then
+							packageArchive="$pathPackages.xz";
 							echo "$(date +%T) Extracting $release $repo $arch Packages file from archive $packageArchive";
 							if [[ -L "$packageArchive" ]]; then #Same as above
 								echo "$(date +%T) Archive is a symlink, resolving";
 								packageArchive=$(readlink $packageArchive | sed --expression "s_^_${packageArchive}_" --expression 's/Packages\.xz//');
 							fi
-							xzcat <"$packageArchive" >"$localPackageStore/dists/$release/$repo/binary-$arch/Packages";
+							xzcat <"$packageArchive" >"$pathPackages";
 						fi
 					else
 						echo "$(date +%T) Error: uncompressed package list not found in remote repo and decompression tools for .gz or .xz files not found on this system, aborting. Please install either gunzip or xzcat to use this script." 1>&2;
@@ -90,8 +91,8 @@ do
 					fi
 				fi
 				echo "$(date +%T) Extracting packages from $release $repo $arch";
-				if [[ -s "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" ]]; then #Have experienced zero filesizes for certain repos
-					awk '/^Filename: / { print $2; }' "$localPackageStore/dists/$release/$repo/binary-$arch/Packages" >> "/tmp/$filename";
+				if [[ -s "$pathPackages" ]]; then #Have experienced zero filesizes for certain repos
+					awk '/^Filename: / { print $2; }' "$pathPackages" >> "/tmp/$filename";
 				else
 					echo "$(date +%T) Package list is empty, skipping";
 				fi
