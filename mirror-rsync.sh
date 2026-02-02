@@ -7,11 +7,37 @@ set -euo pipefail;
 #Author: Rob Johnson
 #Date: 2017-09-20
 
+usage()
+{
+  echo "Simple APT mirror script using rsync and *nix tools, intended to be run via cron";
+  echo "Usage: $0 [-h] [-p]";
+  echo "Options:";
+  echo "	-h		Display this help message"
+  echo "	-p		Display progress from the package sync (for interactive use)";
+  exit;
+}
+
 syncDate=$(date +%F);
 
 #Adapt as necessary to your package mirror setup
 sourceFolder='/etc/mirror-rsync.d';
 baseDirectory="/srv/apt";
+
+progress='';
+#Add a progress option
+while getopts "ph" option; do
+  case "${option}" in
+    p)
+      progress='--info=progress2'
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
 
 #Basic checks
 if [[ ! -d "$sourceFolder" ]]; then
@@ -117,7 +143,7 @@ do
 	while [[ $exitCode -gt 0 ]] && [[ $attempt -lt 4 ]];
 	do
 		SECONDS=0;
-		rsync --copy-links --files-from="/tmp/$filename" --no-motd --delete-during --archive --recursive --human-readable $masterSource::$name "$localPackageStore/" 2>&1;
+		rsync $progress --copy-links --files-from="/tmp/$filename" --no-motd --delete-during --archive --recursive --human-readable $masterSource::$name "$localPackageStore/" 2>&1;
 		exitCode=$?;
 		if [[ $exitCode -gt 0 ]]; then
 			waitTime=$((attempt*300)); #increasing wait time - 5, 10 and 15 minutes between attempts
