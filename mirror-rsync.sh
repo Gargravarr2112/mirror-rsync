@@ -47,8 +47,8 @@ if [[ ! -d "$sourceFolder" ]]; then
 elif [[ $(ls -1 "$sourceFolder"/* | wc -l) -eq 0 ]]; then
     echo "No master source file(s) found in $sourceFolder, create one and add name, releases, repositories and architectures per README." 1>&2;
     exit 1;
-elif [[ ! $(which rsync) ]] || [[ ! $(which sed) ]] || [[ ! $(which awk) ]]; then
-	echo "Missing one or more of required tools 'rsync', 'sed' and 'awk' (or they are not in the PATH for this user)." 1>&2;
+elif [[ ! $(which bash) ]] || [[ ! $(which rsync) ]] || [[ ! $(which sed) ]] || [[ ! $(which awk) ]]; then
+	echo "Missing one or more of required tools 'bash','rsync', 'sed' and 'awk' (or they are not in the PATH for this user)." 1>&2;
 	exit 1;
 elif [[ ! $(which gunzip) ]] && [[ ! $(which xzcat) ]]; then
 	echo "Warning: missing both 'gunzip' and 'xzcat', required to work with certain repositories that do not provide uncompressed Packages lists. This may not work with your chosen repository. Install gzip and/or xz for best compatibility." 1>&2;
