@@ -128,7 +128,7 @@ do
 
 	echo "$(date +%T) Deduplicating";
 
-	sort --unique "/tmp/$filename" > "/tmp/$filename.sorted";
+	sort -u "/tmp/$filename" > "/tmp/$filename.sorted";
 	rm -v "/tmp/$filename";
 	mv -v "/tmp/$filename.sorted" "/tmp/$filename";
 
